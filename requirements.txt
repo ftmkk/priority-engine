@@ -1,0 +1,27 @@
+# ---- core ----
+pydantic==2.12.3
+pydantic-settings==2.13.0
+PyYAML==6.0.3
+typer==0.20.0
+structlog==25.5.0
+
+# ---- data / model ----
+pandas==2.3.3
+numpy==2.3.4
+scikit-learn==1.7.2
+joblib==1.5.2
+
+# ---- db ----
+SQLAlchemy==2.0.44
+psycopg[binary]==3.2.12
+
+# ---- api ----
+fastapi==0.121.1
+uvicorn[standard]==0.38.0
+
+# ---- scheduling ----
+APScheduler==3.11.0
+
+# ---- tests ----
+pytest==8.4.2
+httpx==0.28.1

@@ -1,0 +1,96 @@
+# ---- secrets / local config -------------------------------------------------
+.env
+.env.local
+*.local
+
+# ---- Python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.installed.cfg
+.venv/
+venv/
+env/
+ENV/
+
+# tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+
+# ---- Node / frontend --------------------------------------------------------
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.eslintcache
+
+# ---- generated pipeline output ----------------------------------------------
+# Trained models are rebuilt by the training job (monthly, and on first boot),
+# so the binaries are never committed -- only the code that produces them.
+artifacts/*
+!artifacts/.gitkeep
+
+# ---- notebooks --------------------------------------------------------------
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
+# ---- Docker -----------------------------------------------------------------
+# Postgres data lives in a named volume, never on the host, but ignore any
+# stray bind-mount directory a reviewer might create.
+pgdata/
+docker-compose.override.yml
+
+# ---- editors / OS -----------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ---- not ours to publish ----------------------------------------------------
+# The task brief is the employer's document, not part of the deliverable.
+docs/task.pdf
+
+# ---- kept on purpose --------------------------------------------------------
+# data/leads.csv        the dataset the stack bootstraps from -- committed so
+#                       `docker compose up` works with nothing else to fetch
+# data/data_dictionary.csv
+# config/config.yaml    behaviour lives here; only secrets are in the env
+
+# ---- the dataset is not committed -------------------------------------------
+# leads.csv carries the data itself, so it stays out of the repository. A
+# reviewer copies it into data/ before starting the stack -- see the README.
+data/*
+!data/.gitkeep
+
+# panel/index.html embeds the full dataset for offline exploration, so it is
+# excluded for the same reason.
+panel/
+
+# ---- not ours to publish ----------------------------------------------------
+# The task brief is the employer's document, not part of the deliverable.
+docs/
+
+# ---- kept on purpose --------------------------------------------------------
+# config/config.yaml    behaviour lives here; only secrets live in the env
+# artifacts/.gitkeep    keeps the mount point present; models are regenerated

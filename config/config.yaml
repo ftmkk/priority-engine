@@ -1,0 +1,64 @@
+# Lead Priority Engine config.
+# Override any value with an env var: PE_<SECTION>__<KEY>  (e.g. PE_TRAIN__ALGORITHM=logreg)
+# DB credentials come from POSTGRES_* env vars only, never from this file.
+
+csv_path: data/leads.csv
+artifacts_dir: artifacts
+
+train:
+  algorithm: gbdt          # gbdt | logreg  (both are tried, best PR-AUC wins)
+  holdout_days: 28         # August is held out: conversion drops 9.5% -> 7.4% there,
+                           # so the split is by time, never random.
+  label_maturity_days: 7   # outcomes younger than this aren't known yet
+  random_state: 42
+
+predict:
+  # No time window to configure: the job derives its own work list from each
+  # lead's age against priority.decay_support_minutes (see predict.py). Set an
+  # integer to cap rows per run if a backlog needs draining gradually.
+  max_rows_per_run: null
+
+priority:
+  # Rank by expected value, not raw probability: margin differs ~1.5x across
+  # products, so P(buy) alone leaves money on the table.
+  #
+  # Two regimes, split at the edge of what the model was trained on.
+  #
+  # INSIDE support (total age <= support_minutes): the model is valid here, so we
+  #   ask it rather than approximating. The scoring job advances the lead's clock
+  #   features to its current age and re-infers. This window is finite per lead
+  #   (6 hours), so the work stops on its own.
+  # OUTSIDE support: the model has no evidence at these ages. We anchor on its
+  #   answer at the boundary and decay from there with the fitted constant.
+  #
+  # The two regimes join continuously at the boundary. Note the decay constant
+  # was fitted cross-sectionally (one snapshot per lead), so it mixes true
+  # cooling with survivor composition and is an UPPER bound on real decay.
+  decay_support_minutes: 360
+  decay_per_hour: 0.778     # applies only beyond the boundary
+
+  # A call queue only holds leads worth calling. Past this age a lead leaves the
+  # queue entirely rather than sitting at the bottom forever -- nobody rings a
+  # three-day-old abandoned cart, and keeping them in would mean decaying scores
+  # over months, which the fitted constant cannot support.
+  queue_horizon_hours: 48
+  # Hard ceiling on the extrapolated decay. Without it, an old lead underflows
+  # (0.778^3600h is not a representable number) and the ranking breaks.
+  decay_max_excess_hours: 24
+  # Reference clock for "now". This dataset is a fixed historical snapshot, so
+  # wall-clock time would put every lead centuries past its support. `dataset`
+  # reads the newest created_at in the data; production would use `wall`.
+  clock: dataset            # dataset | wall
+  tiers:                    # percentile cutoffs on expected value
+    P1: 95                  # call now
+    P2: 80                  # call today
+    P3: 50                  # queue
+                            # everything below P3 is P4 (deprioritize)
+
+jobs:
+  train_cron: "0 3 1 * *"    # 03:00 on the 1st of each month
+  predict_cron: "*/5 * * * *"
+  run_on_startup: true
+
+api:
+  cors_origins: ["http://localhost:8080", "http://localhost:5173"]

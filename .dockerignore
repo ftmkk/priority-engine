@@ -1,0 +1,20 @@
+.git
+.venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+node_modules
+frontend/node_modules
+frontend/dist
+artifacts/*.joblib
+artifacts/*.json
+# the dataset is mounted at run time, never copied into the image
+data/
+notebooks/
+panel/
+doc/
+.env
+*.md
+!README.md

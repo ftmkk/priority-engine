@@ -1,0 +1,169 @@
+# =============================================================================
+#  Lead Priority Engine — full stack.
+#
+#    docker compose up --build          # postgres + api + worker + panel
+#    docker compose run --rm cli <cmd>  # one-off pipeline commands
+#
+#  A reviewer needs nothing installed beyond Docker itself.
+# =============================================================================
+
+x-backend-env: &backend-env
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB:-priority_engine}
+  POSTGRES_USER: ${POSTGRES_USER:-priority}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-priority_local_pw}
+  PE_APP__ENV: docker
+  PE_APP__LOG_LEVEL: ${PE_APP__LOG_LEVEL:-INFO}
+
+x-backend-volumes: &backend-volumes
+  - artifacts:/app/artifacts   # trained models, shared api <-> worker
+  - ./data:/app/data:ro        # the reviewer's dataset — read-only, never baked in
+
+services:
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    container_name: pe-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-priority_engine}
+      POSTGRES_USER: ${POSTGRES_USER:-priority}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-priority_local_pw}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Applied once on an empty volume; the app re-applies idempotently too.
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_PORT_HOST:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-priority} -d ${POSTGRES_DB:-priority_engine}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  #  Bootstrap: migrate + load the CSV into Postgres. Runs to completion once,
+  #  and every other service waits for it to exit successfully. This is what
+  #  guarantees the pipeline reads from Postgres and never from the CSV.
+  # ---------------------------------------------------------------------------
+  bootstrap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: priority-engine-backend:latest
+    container_name: pe-bootstrap
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *backend-env
+    volumes: *backend-volumes
+    command: ["python", "-m", "priority_engine.cli", "bootstrap"]
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: priority-engine-backend:latest
+    container_name: pe-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      bootstrap:
+        condition: service_completed_successfully
+    environment: *backend-env
+    volumes: *backend-volumes
+    ports:
+      - "${API_PORT_HOST:-8000}:8000"
+    command:
+      ["uvicorn", "priority_engine.api:app",
+       "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  #  Scheduler: monthly training (+ once at startup) and 5-minute prediction
+  #  over the last 24h of leads. Separate container so scoring load never
+  #  competes with API request handling.
+  # ---------------------------------------------------------------------------
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: priority-engine-backend:latest
+    container_name: pe-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      bootstrap:
+        condition: service_completed_successfully
+    environment: *backend-env
+    volumes: *backend-volumes
+    command: ["python", "-m", "priority_engine.scheduler"]
+
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: priority-engine-frontend:latest
+    container_name: pe-frontend
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "${PANEL_PORT_HOST:-8080}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost/ >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  #  Manual pipeline commands. Not started by `up` (profile-gated):
+  #     docker compose run --rm cli load-data
+  #     docker compose run --rm cli train
+  #     docker compose run --rm cli evaluate
+  #     docker compose run --rm cli predict --lookback-hours 24
+  # ---------------------------------------------------------------------------
+  cli:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: priority-engine-backend:latest
+    profiles: ["tools"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *backend-env
+    volumes: *backend-volumes
+    entrypoint: ["python", "-m", "priority_engine.cli"]
+
+  # ---------------------------------------------------------------------------
+  tests:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: priority-engine-backend:latest
+    profiles: ["tools"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *backend-env
+    volumes: *backend-volumes
+    entrypoint: ["python", "-m", "pytest", "-q"]
+
+volumes:
+  pgdata:
+  artifacts:
