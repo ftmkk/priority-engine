@@ -7,7 +7,7 @@ import joblib
 import numpy as np
 from sklearn.calibration import CalibratedClassifierCV
 
-from . import features, metrics
+from . import features, interpret, metrics
 from .config import CFG
 from .db import execute, training_data
 
@@ -65,9 +65,20 @@ def run():
     log.info("after calibration: pr_auc=%.4f brier=%.4f (was %.4f)",
              result["pr_auc"], result["brier"], candidates[best][1]["brier"])
 
+    # Interpretation is produced for whichever model was selected, not just for
+    # the linear one — permutation importance is model-agnostic, and the linear
+    # equation is included only when there actually is one.
+    importance = interpret.global_importance(pipe, X_test, y_test)
+    equation = interpret.linear_terms(pipe)
+    reference = interpret.reference_row(X_train)
+    log.info("top features: %s",
+             ", ".join(f"{d['feature']}({d['importance']:.4f})" for d in importance[:4]))
+
     version = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     path = CFG["artifacts_dir"] / f"model_{version}.joblib"
-    joblib.dump(pipe, path)
+    # the reference row travels with the model so explanations stay reproducible
+    joblib.dump({"pipeline": pipe, "reference": reference,
+                 "algorithm": best, "version": version}, path)
 
     execute("UPDATE pe.model_versions SET is_active = FALSE WHERE is_active")
     execute(
@@ -101,9 +112,10 @@ def run():
              for a, (_, r) in candidates.items()]
             + [{"algorithm": f"baseline:{n}", "pr_auc": r["pr_auc"], "roc_auc": r["roc_auc"]}
                for n, r in baselines.items()]),
-        importance=json.dumps([]),
+        importance=json.dumps({"permutation": importance, "equation": equation}),
         artifact_path=str(path),
     )
     log.info("registered model %s", version)
     return {"version": version, "algorithm": best, "metrics": result,
-            "baselines": {k: v["pr_auc"] for k, v in baselines.items()}}
+            "baselines": {k: v["pr_auc"] for k, v in baselines.items()},
+            "top_features": [d["feature"] for d in importance[:5]]}

@@ -38,9 +38,17 @@ def active_model():
     version, path = row.iloc[0]["version"], row.iloc[0]["artifact_path"]
     if _cache.get("version") != version:
         _cache.clear()
-        _cache.update(version=version, pipe=joblib.load(path))
+        bundle = joblib.load(path)
+        _cache.update(version=version, pipe=bundle["pipeline"],
+                      reference=bundle["reference"])
         log.info("loaded model %s", version)
     return _cache["version"], _cache["pipe"]
+
+
+def active_bundle():
+    """Model plus the reference row explanations are measured against."""
+    version, pipe = active_model()
+    return version, pipe, _cache["reference"]
 
 
 def leads_needing_score(version):

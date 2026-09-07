@@ -50,6 +50,8 @@ First boot takes ~2 minutes, most of it installing dependencies into the image.
 - **Dashboard** — conversion patterns, the live queue, the drift that forces a temporal split
 - **Call queue** — who to call, in order, filterable by tier / channel / product
 - **Model** — holdout metrics, gains curve, precision@k, candidate comparison, job history
+- **Why this score** — model interpretation: per-lead waterfall, a live what-if curve,
+  global permutation importance, and the literal equation when a linear model won
 - **Monitoring** — calibration, score distribution, decay impact, drift across runs
 - **How it works** — the algorithm and four diagrams of the mechanism, what's used, what's
   excluded and why, and the limits
@@ -95,7 +97,8 @@ src/priority_engine/
   db.py          engine, migrations, the two queries the pipeline needs
   ingest.py      CSV -> Postgres
   features.py    feature building + the sklearn pipeline
-  metrics.py     PR-AUC, precision@k, lift@k, gains curve
+  metrics.py     PR-AUC, precision@k, lift@k, gains curve, reliability curve
+  interpret.py   permutation importance, per-lead attribution, response curves
   train.py       temporal split, train both candidates, calibrate, register
   predict.py     score, decay, expected value, tiers -> Postgres
   scheduler.py   the two cron jobs
@@ -105,7 +108,7 @@ frontend/src/    React panel (Recharts)
 tests/           pytest
 ```
 
-Ten backend modules, one job each. `db.py` is the only place that talks SQL;
+Eleven backend modules, one job each. `db.py` is the only place that talks SQL;
 `features.py` is the only place that defines a feature, and both training and
 prediction call the same `build()` so they cannot drift apart.
 
@@ -172,6 +175,34 @@ and decaying that again would penalise the same fact twice. And leads past
 `queue_horizon_hours` leave the queue entirely rather than decaying toward zero
 at the bottom of it; extrapolating the constant over months is not something a
 cross-sectional fit can carry (it also underflows).
+
+### Interpretation
+
+Whichever algorithm the run selects gets interpreted — the methods are
+model-agnostic on purpose, so switching to `gbdt` loses nothing but the equation:
+
+- **Globally**, permutation importance on the holdout, scored in PR-AUC: shuffling
+  a column costs the model exactly this much ranking ability. `has_previous_purchase`
+  (0.028) and `visited_offer_page` (0.027) dominate, then `offer_views_last_7d` and
+  `incoming_call_last_24h` at about a third of that.
+- **Per lead**, one-feature ablation: set a feature to the population reference,
+  re-score, and the shift in log-odds is what that lead's own value contributes.
+  The panel renders it as a waterfall from the average lead to this one, with every
+  step labelled, so the arithmetic is readable rather than asserted.
+- **What-if**, the model's response curve for one lead along one feature, holding
+  the rest fixed. Sweeping `minutes_since_abandonment` on a real lead traces
+  0.151 → 0.057 across the range — the model's own decay, straight out of the model
+  rather than from the fitted constant.
+
+The attribution is deliberately **not** presented as a Shapley value. One-at-a-time
+ablation cannot capture interactions, and the isotonic calibration layer is monotone
+but not linear, so the parts do not sum to the whole. The gap is reported as a
+`residual` term in the waterfall instead of being quietly distributed.
+
+This layer immediately earned itself: it showed raw `price` carrying a large
+contribution, which contradicted the documented decision to use only the
+within-product percentile. Measured head to head, the raw column changed PR-AUC not
+at all (0.1569 either way), so it was removed and the code now matches the design.
 
 ### Current results (August held out)
 

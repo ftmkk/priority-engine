@@ -6,12 +6,14 @@ import Dashboard from "./pages/Dashboard.jsx";
 import Queue from "./pages/Queue.jsx";
 import Model from "./pages/Model.jsx";
 import Monitoring from "./pages/Monitoring.jsx";
+import Explain from "./pages/Explain.jsx";
 import About from "./pages/About.jsx";
 
 const TABS = [
   ["/dashboard", "Dashboard"],
   ["/queue", "Call queue"],
   ["/model", "Model"],
+  ["/explain", "Why this score"],
   ["/monitoring", "Monitoring"],
   ["/about", "How it works"],
 ];
@@ -45,6 +47,7 @@ export default function App() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/queue" element={<Queue />} />
           <Route path="/model" element={<Model />} />
+          <Route path="/explain" element={<Explain />} />
           <Route path="/monitoring" element={<Monitoring />} />
           <Route path="/about" element={<About />} />
         </Routes>

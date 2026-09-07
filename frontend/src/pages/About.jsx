@@ -95,10 +95,11 @@ export default function About() {
           <ul>
             <li><code>discount_percent</code> — monotonic, 8.4% → 10.7%.</li>
             <li>
-              <code>price</code> is used as a <strong>percentile within product type</strong>,
-              not as a raw number. Raw price looks predictive but is mostly a proxy for the
-              product: carbody's median is ~19.6M against thirdparty's ~7.5M, and within each
-              product the price effect nearly vanishes.
+              <code>price</code> enters only as a <strong>percentile within product type</strong>.
+              Raw price looks predictive but is mostly a proxy for the product: carbody's median
+              is ~19.6M against thirdparty's ~7.5M, and within each product the effect nearly
+              vanishes. Measured head to head, adding the raw column back changes PR-AUC not at
+              all — so it stays out.
             </li>
             <li>
               <code>channel</code>, <code>payment_type</code>, <code>insurance_company</code>,{" "}
@@ -252,6 +253,31 @@ export default function About() {
             Leads past the queue horizon leave the list entirely rather than sitting at the
             bottom of it. Extrapolating the decay over months is not something a
             cross-sectional fit can carry — and it underflows.
+          </p>
+
+          <h2>Interpretation</h2>
+          <p>
+            Whichever algorithm the run selects gets interpreted, because both methods are
+            model-agnostic: <strong>permutation importance</strong> on the holdout for what the
+            model relies on globally, and <strong>one-feature ablation</strong> for how a
+            particular lead's score was arrived at. The <em>Why this score</em> page renders the
+            second as a waterfall from the average lead to the one you pick, with every step
+            labelled — plus a live what-if curve that sweeps a single feature and leaves
+            everything else fixed.
+          </p>
+          <div className="callout">
+            <p>
+              These are not Shapley values, and the page says so. One-at-a-time ablation cannot
+              see interactions, and the calibration layer is monotone but not linear, so the
+              parts do not sum to the whole. The gap is shown as an explicit{" "}
+              <code>residual</code> bar rather than smeared across the other features.
+            </p>
+          </div>
+          <p>
+            It paid for itself straight away: the breakdown showed raw <code>price</code> carrying
+            a large contribution, which contradicted the decision above to use only the
+            within-product percentile. Head to head the raw column changed PR-AUC not at all, so
+            it came out — and the code now matches what this page claims.
           </p>
 
           <h2>Limits — what this cannot tell you</h2>

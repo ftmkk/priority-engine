@@ -4,7 +4,7 @@ import logging
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import db, predict, train
+from . import db, interpret, predict, train
 from .config import CFG
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -243,6 +243,58 @@ def queue_composition():
         FROM pe.v_current_priority
         GROUP BY priority_tier, product_type ORDER BY priority_tier, product_type
     """)
+
+
+# --- interpretation --------------------------------------------------------- #
+@app.get("/api/interpret/importance")
+def importance():
+    """What the selected model relies on, and which way each feature pushes."""
+    m = rows("SELECT algorithm, feature_importance FROM pe.model_versions WHERE is_active")
+    if not m:
+        raise HTTPException(404, "no active model yet")
+    fi = m[0]["feature_importance"] or {}
+    return {"algorithm": m[0]["algorithm"],
+            "permutation": fi.get("permutation", []),
+            "equation": fi.get("equation")}
+
+
+@app.get("/api/interpret/features")
+def sweepable_features():
+    return interpret.sweepable()
+
+
+def _lead_frame(lead_id):
+    df = db.query("SELECT * FROM pe.v_leads_curated WHERE lead_id = :l", l=lead_id)
+    if df.empty:
+        raise HTTPException(404, f"no lead {lead_id}")
+    return df
+
+
+@app.get("/api/interpret/explain/{lead_id}")
+def explain_lead(lead_id: str, top_n: int = Query(10, le=20)):
+    """How this particular lead's score was arrived at, feature by feature."""
+    version, pipe, reference = predict.active_bundle()
+    df = _lead_frame(lead_id)
+    out = interpret.explain(pipe, df, reference, top_n=top_n)
+    out["lead_id"] = lead_id
+    out["model_version"] = version
+    out["lead"] = {k: interpret.to_native(v) for k, v in
+                   df.iloc[0][["product_type", "channel", "payment_type",
+                               "insurance_company", "minutes_since_abandonment",
+                               "days_to_policy_expiry", "offer_views_last_7d",
+                               "sessions_last_7d", "visited_offer_page",
+                               "has_previous_purchase", "price", "expected_margin"]].items()}
+    return out
+
+
+@app.get("/api/interpret/sweep/{lead_id}")
+def sweep_lead(lead_id: str, feature: str):
+    """The model's response curve for this lead along one feature."""
+    _, pipe, _ = predict.active_bundle()
+    try:
+        return interpret.sweep(pipe, _lead_frame(lead_id), feature)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
 
 
 # --- operations ------------------------------------------------------------- #

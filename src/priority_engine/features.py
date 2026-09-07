@@ -17,7 +17,11 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 CATEGORICAL = ["product_type", "channel", "device", "partner",
                "insurance_company", "payment_type"]
 
-NUMERIC = ["minutes_since_abandonment", "days_to_policy_expiry", "price",
+# Raw `price` is deliberately absent: it is mostly a proxy for product_type
+# (carbody median ~19.6M vs thirdparty ~7.5M), and measured head to head it adds
+# nothing over the within-product percentile — identical PR-AUC, so it is one
+# redundant feature the model no longer has to spend capacity on.
+NUMERIC = ["minutes_since_abandonment", "days_to_policy_expiry",
            "discount_percent", "sessions_last_7d", "offer_views_last_7d",
            "days_since_last_visit", "has_previous_purchase", "visited_offer_page",
            "incoming_call_last_24h",
