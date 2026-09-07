@@ -1,26 +1,17 @@
-import React from "react";
+import React, { useState } from "react";
 import { api, num, pct } from "../api.js";
 import { Card, useApi } from "../components.jsx";
 import {
   FeatureRoutingDiagram, PipelineDiagram, RegimeDiagram, SplitDiagram,
 } from "../diagrams.jsx";
 
-export default function About() {
+/* Long enough that reading it top to bottom is a chore, so it is split into
+   sections with one mounted at a time. Each keeps the diagram that belongs to it. */
+
+function SecProblem() {
   const { data: m } = useApi(api.model, []);
-
   return (
-    <>
-      <div className="phead">
-        <span className="eyebrow">How it works</span>
-        <h1>The algorithm, and the decisions behind it</h1>
-        <p>
-          What the model uses, what it deliberately ignores, how it is validated, and
-          what it cannot tell you. Every number below comes from the dataset in Postgres.
-        </p>
-      </div>
-
-      <Card>
-        <div className="prose">
+    <div className="prose">
           <h2>The problem</h2>
           <p>
             Thousands of leads enter the insurance purchase funnel and most never finish.
@@ -57,7 +48,13 @@ export default function About() {
           </ol>
 
           <PipelineDiagram />
+    </div>
+  );
+}
 
+function SecFeatures() {
+  return (
+    <div className="prose">
           <h2>What the model uses</h2>
           <p>Three groups of signal, in descending order of strength:</p>
           <h3>1. Behavioural intent — the strongest signal</h3>
@@ -137,7 +134,13 @@ export default function About() {
           </ul>
 
           <FeatureRoutingDiagram />
+    </div>
+  );
+}
 
+function SecQuality() {
+  return (
+    <div className="prose">
           <h2>Data quality decisions</h2>
           <ul>
             <li>
@@ -161,7 +164,14 @@ export default function About() {
               session, the other a 7-day rolling count — not a bug. Neither is "corrected".
             </li>
           </ul>
+    </div>
+  );
+}
 
+function SecValidation() {
+  const { data: m } = useApi(api.model, []);
+  return (
+    <div className="prose">
           <h2>Validation</h2>
           <div className="callout">
             <p>
@@ -213,7 +223,13 @@ export default function About() {
             touching the order. This matters because the ranking multiplies probability by
             margin, and that product is only meaningful if the probability is real.
           </p>
+    </div>
+  );
+}
 
+function SecRanking() {
+  return (
+    <div className="prose">
           <h2>From probability to a call list</h2>
           <p>
             A lead's stored features never change, so re-running the model over the same rows
@@ -254,7 +270,13 @@ export default function About() {
             bottom of it. Extrapolating the decay over months is not something a
             cross-sectional fit can carry — and it underflows.
           </p>
+    </div>
+  );
+}
 
+function SecInterpret() {
+  return (
+    <div className="prose">
           <h2>Interpretation</h2>
           <p>
             Whichever algorithm the run selects gets interpreted, because both methods are
@@ -314,7 +336,50 @@ export default function About() {
               exploit one strong one.
             </li>
           </ul>
-        </div>
+    </div>
+  );
+}
+
+const SECTIONS = [
+  { id: "problem", label: "Problem & pipeline", Body: SecProblem },
+  { id: "features", label: "Features", Body: SecFeatures },
+  { id: "quality", label: "Data quality", Body: SecQuality },
+  { id: "validation", label: "Validation & model", Body: SecValidation },
+  { id: "ranking", label: "Ranking", Body: SecRanking },
+  { id: "interpret", label: "Interpretation & limits", Body: SecInterpret },
+];
+
+export default function About() {
+  const [active, setActive] = useState(SECTIONS[0].id);
+  const current = SECTIONS.find((s) => s.id === active) ?? SECTIONS[0];
+
+  return (
+    <>
+      <div className="phead">
+        <span className="eyebrow">How it works</span>
+        <h1>The algorithm, and the decisions behind it</h1>
+        <p>
+          What the model uses, what it deliberately ignores, how it is validated, and
+          what it cannot tell you. Every number comes from the dataset in Postgres.
+        </p>
+      </div>
+
+      <div className="tabs" role="tablist" aria-label="Sections">
+        {SECTIONS.map((s) => (
+          <button
+            key={s.id}
+            role="tab"
+            aria-selected={s.id === active}
+            className={s.id === active ? "tab on" : "tab"}
+            onClick={() => setActive(s.id)}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      <Card>
+        <current.Body />
       </Card>
     </>
   );

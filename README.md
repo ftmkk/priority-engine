@@ -53,8 +53,9 @@ First boot takes ~2 minutes, most of it installing dependencies into the image.
 - **Why this score** — model interpretation: per-lead waterfall, a live what-if curve,
   global permutation importance, and the literal equation when a linear model won
 - **Monitoring** — calibration, score distribution, decay impact, drift across runs
-- **How it works** — the algorithm and four diagrams of the mechanism, what's used, what's
-  excluded and why, and the limits
+- **How it works** — the algorithm in six tabbed sections (problem & pipeline, features,
+  data quality, validation, ranking, interpretation & limits), each with the diagram that
+  belongs to it
 
 There is no `charts/` directory and nothing writes PNGs. Every figure is generated from
 Postgres by the panel at request time, which keeps them reproducible in the sense the brief
