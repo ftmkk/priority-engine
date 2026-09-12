@@ -613,3 +613,63 @@ read, so the prose and the pictures cannot drift apart.
 Nothing in the pipeline imports the notebooks; the dependency runs the other way.
 `pe_style` defaults to `localhost:5433`; override with `POSTGRES_HOST` / `POSTGRES_PORT` /
 `POSTGRES_PASSWORD`.
+
+---
+
+# Screenshots
+
+The running panel at `http://localhost:8080`, captured from the live stack — same Postgres,
+same API, same `priority.current_time` the header reports.
+
+### Dashboard · Overview
+
+![Dashboard overview](screenshots/01-overview.webp)
+
+- The five headline numbers, then the live queue by priority tier (P1…P4).
+- Weekly conversion with the August drop visible — the reason the split is temporal.
+- The two clocks side by side: intent cooling by the minute, deadline pressure pulling the other way.
+
+### Dashboard · Model
+
+![Model page](screenshots/02-model.webp)
+
+- Holdout PR-AUC 0.1569 · ROC-AUC 0.7004 · Brier 0.0666 against a 7.38% base rate.
+- Cumulative gains, and the precision/lift table at 250 / 500 / 1,000 / 2,500 calls.
+- The candidate comparison with its window labelled — `validation` for the choice, `holdout` for the baselines — and `logreg` tagged `chosen`.
+- Every training run stays in the registry, one row each, exactly one marked `active`.
+
+### Dashboard · Segments
+
+![Segments page](screenshots/03-segments.webp)
+
+- k = 5 by silhouette, one scatter panel per segment rather than five hues on one plot.
+- The table ranks by conversion and shows call share next to it — segment 0 converts best (13.17%) but segment 3 takes 44 of the 62 calls.
+- That inversion is expected-value ranking: segment 0 carries the lowest margin of any group.
+
+### Dashboard · Monitoring
+
+![Monitoring page](screenshots/04-monitoring.webp)
+
+- Calibration, score distribution, and the score band across successive runs — flat is healthy.
+- What the read-time decay costs a lead, with the support boundary marked.
+- Class balance, restating why accuracy is not the metric.
+
+### Call queue
+
+![Call queue](screenshots/05-queue.webp)
+
+- Ranked by expected value, filterable by tier / channel / product, 308 leads inside the 24h horizon.
+- Click any lead: the waterfall shows what its own values contributed, with interactions and calibration kept separate as a residual bar rather than distributed.
+- Below it, a what-if curve along one feature, plus the global importance and the standardised weights.
+
+### How it works
+
+Eight slides, one claim and one live chart each — every figure generated from Postgres at request time.
+
+![How it works — the problem](screenshots/06-about.webp)
+
+![How it works — the result](screenshots/07-about-result.webp)
+
+![How it works — proving it live](screenshots/08-about-proving.webp)
+
+- The last slide is the honest one: the gains chart is a **backtest**, and the five A/B steps next to it use **illustrative numbers — no experiment has run yet.**
