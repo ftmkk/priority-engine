@@ -224,16 +224,17 @@ def urgency():
 def engagement():
     vc = views.v_leads_curated
     conversion = cast(func.avg(vc.c.completed_purchase), Float)
-    return {
-        col: rows(
-            select(func.least(vc.c[col], 6).label("bucket"), func.count().label("leads"),
+    def _bucketed(col):
+        bucket = func.least(vc.c[col], 6)
+        return rows(
+            select(bucket.label("bucket"), func.count().label("leads"),
                    conversion.label("conversion"))
             .where(vc.c.completed_purchase.isnot(None))
-            .group_by(func.least(vc.c[col], 6)).having(func.count() >= 100)
-            .order_by(func.least(vc.c[col], 6))
+            .group_by(bucket).having(func.count() >= 100)
+            .order_by(bucket)
         )
-        for col in ("offer_views_last_7d", "sessions_last_7d")
-    }
+
+    return {col: _bucketed(col) for col in ("offer_views_last_7d", "sessions_last_7d")}
 
 
 @app.get("/api/analytics/weekly")

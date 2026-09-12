@@ -230,6 +230,14 @@ def _log_view_settings():
              pr["queue_horizon_hours"])
 
 
+def _executable(stmt):
+    """A bare string is still accepted (e.g. ad-hoc queries in tests) -- wrapped
+    in `text()` here so callers of these helpers need not import it themselves.
+    Application code should pass a Core `select()`/`insert()`/... construct
+    instead; see views.py for the view Tables those are built against."""
+    return text(stmt) if isinstance(stmt, str) else stmt
+
+
 def query(stmt, **params):
     """Read a Core `select()` (or other executable) into a DataFrame.
 
@@ -237,21 +245,21 @@ def query(stmt, **params):
     with plain Python values in its `where()`/`values()` clauses needs none.
     """
     with engine.connect() as c:
-        return pd.read_sql_query(stmt, c, params=params or None)
+        return pd.read_sql_query(_executable(stmt), c, params=params or None)
 
 
 def execute(stmt, **params):
     """Write in a committed transaction. Returns the first value for
     an INSERT ... RETURNING, else the affected row count."""
     with engine.begin() as c:
-        r = c.execute(stmt, params or None)
+        r = c.execute(_executable(stmt), params or None)
         return r.scalar() if r.returns_rows else r.rowcount
 
 
 def scalar(stmt, **params):
     """Read a single value. Read-only — use execute() for writes."""
     with engine.connect() as c:
-        return c.execute(stmt, params or None).scalar()
+        return c.execute(_executable(stmt), params or None).scalar()
 
 
 # --- the read the training job needs -------------------------------------- #
