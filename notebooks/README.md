@@ -15,10 +15,6 @@ change in conversion each column's mix explains. Features are grouped by
 family throughout, and inside each family the strongest separator from the target comes
 first. The rest of the series follows the pipeline.
 
-Each notebook opens with a one-line-per-section table — the question it asks and the answer
-it reaches — so the series can be skimmed from those and read properly only where it
-matters.
-
 | Notebook | Question |
 |---|---|
 | `01_eda.ipynb` | A sheet of every column (shape, holes, signal, worth), the pairwise matrix, and how far each column's distribution moves month by month — and the findings they yield |

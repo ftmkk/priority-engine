@@ -135,7 +135,7 @@ services:
   #     docker compose run --rm cli load-data
   #     docker compose run --rm cli train
   #     docker compose run --rm cli evaluate
-  #     docker compose run --rm cli predict --lookback-hours 24
+  #     docker compose run --rm cli predict --limit 500
   # ---------------------------------------------------------------------------
   cli:
     build:
