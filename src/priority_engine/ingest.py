@@ -2,9 +2,11 @@
 import logging
 
 import pandas as pd
+from sqlalchemy import distinct, func
 
 from .config import CFG
-from .db import engine, execute, scalar
+from .db import engine, session
+from .models import Lead
 
 log = logging.getLogger(__name__)
 
@@ -26,12 +28,13 @@ COLUMNS = {
 
 
 def load_csv(force=False):
-    existing = scalar("SELECT count(*) FROM pe.leads") or 0
-    if existing and not force:
-        log.info("leads already loaded (%s rows), skipping", existing)
-        return existing
-    if force:
-        execute("TRUNCATE pe.leads")
+    with session() as s:
+        existing = s.query(func.count(Lead.id)).scalar() or 0
+        if existing and not force:
+            log.info("leads already loaded (%s rows), skipping", existing)
+            return existing
+        if force:
+            s.query(Lead).delete()
 
     path = CFG["csv_path"]
     if not path.exists():
@@ -49,7 +52,8 @@ def load_csv(force=False):
     df.to_sql("leads", engine, schema="pe", if_exists="append", index=False,
               chunksize=1000, method="multi")
 
-    total = scalar("SELECT count(*) FROM pe.leads")
-    dupes = scalar("SELECT count(*) - count(DISTINCT lead_id) FROM pe.leads")
+    with session() as s:
+        total = s.query(func.count(Lead.id)).scalar()
+        dupes = total - s.query(func.count(distinct(Lead.lead_id))).scalar()
     log.info("loaded %s rows (%s duplicate lead_ids, deduped by v_leads_curated)", total, dupes)
     return total

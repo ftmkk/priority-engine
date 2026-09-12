@@ -5,12 +5,14 @@ Run as `python -m priority_engine.scheduler` (the worker container's command).
 import json
 import logging
 import time
+from datetime import datetime, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from . import db, predict, train
 from .config import CFG
+from .models import JobRun
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("scheduler")
@@ -18,24 +20,29 @@ log = logging.getLogger("scheduler")
 
 def _tracked(name, fn, trigger="schedule"):
     """Run a job, recording start/finish/failure in pe.job_runs."""
-    run_id = db.execute(
-        "INSERT INTO pe.job_runs (job_name, status, trigger, started_at) "
-        "VALUES (:n, 'running', :t, now()) RETURNING id", n=name, t=trigger)
+    with db.session() as s:
+        run = JobRun(job_name=name, status="running", trigger=trigger)
+        s.add(run)
+        s.flush()
+        run_id = run.id
     started = time.monotonic()
+
+    def finish(**fields):
+        with db.session() as s:
+            run = s.get(JobRun, run_id)
+            for k, v in fields.items():
+                setattr(run, k, v)
+
     try:
         detail = fn() or {}
-        db.execute(
-            "UPDATE pe.job_runs SET status='success', finished_at=now(), "
-            "duration_ms=:ms, rows_processed=:rows, detail=CAST(:d AS jsonb) WHERE id=:id",
-            id=run_id, ms=int((time.monotonic() - started) * 1000),
-            rows=detail.get("scored") or detail.get("rows"),
-            d=json.dumps(detail, default=str))
+        finish(status="success", finished_at=datetime.now(timezone.utc),
+               duration_ms=int((time.monotonic() - started) * 1000),
+               rows_processed=detail.get("scored") or detail.get("rows"),
+               detail=json.loads(json.dumps(detail, default=str)))
         log.info("%s ok: %s", name, detail)
     except Exception as exc:
-        db.execute(
-            "UPDATE pe.job_runs SET status='failed', finished_at=now(), "
-            "duration_ms=:ms, error=:e WHERE id=:id",
-            id=run_id, ms=int((time.monotonic() - started) * 1000), e=str(exc))
+        finish(status="failed", finished_at=datetime.now(timezone.utc),
+               duration_ms=int((time.monotonic() - started) * 1000), error=str(exc))
         log.exception("%s failed", name)
 
 

@@ -9,7 +9,8 @@ from sklearn.calibration import CalibratedClassifierCV
 
 from . import features, interpret, metrics, segments
 from .config import CFG
-from .db import execute, migrate, training_data
+from .db import migrate, session, training_data
+from .models import ModelVersion
 
 log = logging.getLogger(__name__)
 
@@ -127,59 +128,55 @@ def run():
     joblib.dump({"pipeline": pipe, "reference": reference, "feature_ref": ref,
                  "algorithm": best, "version": version}, path)
 
-    execute("UPDATE pe.model_versions SET is_active = FALSE WHERE is_active")
-    execute(
-        """
-        INSERT INTO pe.model_versions
-          (version, algorithm, is_active, trained_at, train_rows, valid_rows, test_rows,
-           train_period_start, train_period_end, valid_period_start, valid_period_end,
-           test_period_start, test_period_end,
-           base_rate_train, base_rate_valid, base_rate_test, hyperparams, feature_spec,
-           metrics, selection_metrics, candidate_results, feature_importance,
-           artifact_path)
-        VALUES
-          (:version, :algorithm, TRUE, now(), :train_rows, :valid_rows, :test_rows,
-           :tr_start, :tr_end, :va_start, :va_end, :te_start, :te_end,
-           :br_train, :br_valid, :br_test, CAST(:hyperparams AS jsonb),
-           CAST(:feature_spec AS jsonb), CAST(:metrics AS jsonb),
-           CAST(:selection AS jsonb), CAST(:candidates AS jsonb),
-           CAST(:importance AS jsonb), :artifact_path)
-        """,
-        version=version, algorithm=best,
-        train_rows=len(train), valid_rows=len(valid), test_rows=len(test),
-        tr_start=train["created_at"].min(), tr_end=train["created_at"].max(),
-        va_start=valid["created_at"].min(), va_end=valid["created_at"].max(),
-        te_start=test["created_at"].min(), te_end=test["created_at"].max(),
-        br_train=float(y_train.mean()), br_valid=float(y_valid.mean()),
-        br_test=float(y_test.mean()),
-        hyperparams=json.dumps(candidates[best][0].named_steps["model"].get_params(), default=str),
-        feature_spec=json.dumps({
-            "categorical": features.CATEGORICAL,
-            "numeric": features.NUMERIC,
-            "excluded": ["expected_margin", "price_comparisons_last_7d", "city"],
-        }),
-        metrics=json.dumps(result),
-        selection=json.dumps(selection),
-        # each row says which window it was scored on: the algorithm comparison
-        # happened on validation, the baselines are also recomputed on the
-        # holdout so the gap that gets quoted is a like-for-like one.
-        candidates=json.dumps(
-            [{"algorithm": a, "scored_on": "validation",
-              "pr_auc": r["pr_auc"], "roc_auc": r["roc_auc"]}
-             for a, (_, r) in candidates.items()]
-            + [{"algorithm": f"baseline:{n}", "scored_on": "validation",
-                "pr_auc": r["pr_auc"], "roc_auc": r["roc_auc"]}
-               for n, r in baselines.items()]
-            + [{"algorithm": f"baseline:{n}", "scored_on": "holdout",
-                "pr_auc": r["pr_auc"], "roc_auc": r["roc_auc"]}
-               for n, r in holdout_baselines.items()]),
-        importance=json.dumps({"permutation": importance, "equation": equation}),
-        # Filename only. The registry is shared between the host and the
-        # containers while the artifacts directory is not, so an absolute path
-        # here resolves in exactly one of them; every reader joins this onto its
-        # own `artifacts_dir` instead.
-        artifact_path=path.name,
-    )
+    def jsonable(obj):
+        """JSONB columns take Python objects; numpy scalars and timestamps do not
+        serialise on their own."""
+        return json.loads(json.dumps(obj, default=str))
+
+    with session() as s:
+        s.query(ModelVersion).filter_by(is_active=True).update({"is_active": False})
+        s.flush()   # the partial unique index allows only one active row at a time
+        s.add(ModelVersion(
+            version=version, algorithm=best, is_active=True,
+            trained_at=datetime.now(timezone.utc),
+            train_rows=len(train), valid_rows=len(valid), test_rows=len(test),
+            train_period_start=train["created_at"].min(),
+            train_period_end=train["created_at"].max(),
+            valid_period_start=valid["created_at"].min(),
+            valid_period_end=valid["created_at"].max(),
+            test_period_start=test["created_at"].min(),
+            test_period_end=test["created_at"].max(),
+            base_rate_train=float(y_train.mean()),
+            base_rate_valid=float(y_valid.mean()),
+            base_rate_test=float(y_test.mean()),
+            hyperparams=jsonable(candidates[best][0].named_steps["model"].get_params()),
+            feature_spec={
+                "categorical": features.CATEGORICAL,
+                "numeric": features.NUMERIC,
+                "excluded": ["expected_margin", "price_comparisons_last_7d", "city"],
+            },
+            metrics=jsonable(result),
+            selection_metrics=jsonable(selection),
+            # each row says which window it was scored on: the algorithm comparison
+            # happened on validation, the baselines are also recomputed on the
+            # holdout so the gap that gets quoted is a like-for-like one.
+            candidate_results=jsonable(
+                [{"algorithm": a, "scored_on": "validation",
+                  "pr_auc": r["pr_auc"], "roc_auc": r["roc_auc"]}
+                 for a, (_, r) in candidates.items()]
+                + [{"algorithm": f"baseline:{n}", "scored_on": "validation",
+                    "pr_auc": r["pr_auc"], "roc_auc": r["roc_auc"]}
+                   for n, r in baselines.items()]
+                + [{"algorithm": f"baseline:{n}", "scored_on": "holdout",
+                    "pr_auc": r["pr_auc"], "roc_auc": r["roc_auc"]}
+                   for n, r in holdout_baselines.items()]),
+            feature_importance=jsonable({"permutation": importance, "equation": equation}),
+            # Filename only. The registry is shared between the host and the
+            # containers while the artifacts directory is not, so an absolute path
+            # here resolves in exactly one of them; every reader joins this onto its
+            # own `artifacts_dir` instead.
+            artifact_path=path.name,
+        ))
     log.info("registered model %s", version)
 
     # Segmentation belongs to a model version so old assignments stay readable

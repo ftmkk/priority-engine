@@ -1,15 +1,29 @@
-"""Database access. Plain SQL through SQLAlchemy — no ORM layer."""
+"""Database access.
+
+Row-level writes go through the ORM (see models.py); the analytical reads --
+views, window functions, percentiles -- stay as SQL, where an ORM adds nothing.
+"""
 import logging
 import time
+from contextlib import contextmanager
 
 import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import sessionmaker
 
 from .config import CFG, ROOT
 
 log = logging.getLogger(__name__)
 engine = create_engine(CFG["db_url"], pool_pre_ping=True, future=True)
+Session = sessionmaker(engine, expire_on_commit=False)
+
+
+@contextmanager
+def session():
+    """ORM session in a committed transaction."""
+    with Session.begin() as s:
+        yield s
 
 
 def wait_ready(timeout=90):

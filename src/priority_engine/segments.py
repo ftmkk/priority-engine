@@ -11,7 +11,6 @@ comparable to the scores), with k chosen by silhouette rather than by hand. The
 itself never sees them, so a segment that looks split on screen is a projection
 artefact, not a clustering failure.
 """
-import json
 import logging
 
 import numpy as np
@@ -22,7 +21,8 @@ from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from . import features
-from .db import engine, execute, query
+from .db import engine, query, session
+from .models import LeadSegment, Segment
 
 log = logging.getLogger(__name__)
 
@@ -111,8 +111,9 @@ def fit(model_version, random_state=42):
     overall = {c: float(X[c].mean()) for c in numeric}
     overall.update({f"{c}__std": float(X[c].std()) or 1.0 for c in numeric})
 
-    execute("DELETE FROM pe.lead_segments WHERE model_version = :v", v=model_version)
-    execute("DELETE FROM pe.segments WHERE model_version = :v", v=model_version)
+    with session() as s:
+        s.query(LeadSegment).filter_by(model_version=model_version).delete()
+        s.query(Segment).filter_by(model_version=model_version).delete()
 
     out = df[["lead_id", "segment", "x", "y"]].copy()
     out["model_version"] = model_version
@@ -120,15 +121,16 @@ def fit(model_version, random_state=42):
                index=False, chunksize=1000, method="multi")
 
     Xs = X.assign(segment=km.labels_)
+    rows = []
     for seg in range(k):
         block = Xs[Xs["segment"] == seg]
         seg_means = {c: float(block[c].mean()) for c in numeric}
         label, traits = _label(seg_means, overall, len(block), len(Xs))
-        execute("""
-            INSERT INTO pe.segments (model_version, segment, label, size, centroid, traits)
-            VALUES (:v, :s, :l, :n, CAST(:c AS jsonb), CAST(:t AS jsonb))
-        """, v=model_version, s=int(seg), l=label, n=int(len(block)),
-             c=json.dumps(seg_means), t=json.dumps(traits))
+        rows.append(Segment(model_version=model_version, segment=int(seg), label=label,
+                            size=int(len(block)), centroid=seg_means, traits=traits))
+
+    with session() as s:
+        s.add_all(rows)
 
     log.info("segmented %s leads into %s groups", len(df), k)
     return {"k": k, "silhouette": scores, "leads": int(len(df))}
