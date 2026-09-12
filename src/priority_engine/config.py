@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _apply_env_overrides(cfg):
-    """PE_TRAIN__ALGORITHM=logreg  ->  cfg["train"]["algorithm"] = "logreg" """
+    """PE_TRAIN__HOLDOUT_DAYS=14  ->  cfg["train"]["holdout_days"] = 14"""
     for key, val in os.environ.items():
         if not key.startswith("PE_"):
             continue

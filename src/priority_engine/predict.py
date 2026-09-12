@@ -18,9 +18,11 @@ each lead stops needing it once it leaves.
 """
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 
 import joblib
 import numpy as np
+from sqlalchemy import text
 
 from . import features
 from .config import CFG
@@ -30,25 +32,49 @@ log = logging.getLogger(__name__)
 _cache = {}
 
 
+def _artifact_path(stored):
+    """Resolve a registry entry against *this* process's artifacts directory.
+
+    New rows store a bare filename. Older ones stored an absolute path, which
+    resolved on the machine that trained and nowhere else — a host-side `train`
+    then 500'd every `/interpret/*` call in the container while every DB-backed
+    page kept working. Either form is accepted; the local directory wins, and
+    the stored value is the fallback so a genuinely missing artifact still
+    reports the path it was registered under.
+    """
+    local = CFG["artifacts_dir"] / Path(stored).name
+    if local.exists():
+        return local
+    if Path(stored).exists():
+        return Path(stored)
+    raise FileNotFoundError(
+        f"model artifact {Path(stored).name!r} is registered but not in "
+        f"{CFG['artifacts_dir']} — it was trained somewhere else (host vs "
+        f"container have separate artifact stores); retrain here or copy it over")
+
+
 def active_model():
     """Load the active model, reusing it until a newer version is registered."""
     row = query("SELECT version, artifact_path FROM pe.model_versions WHERE is_active")
     if row.empty:
         raise RuntimeError("no active model — run `train` first")
-    version, path = row.iloc[0]["version"], row.iloc[0]["artifact_path"]
+    version, path = row.iloc[0]["version"], _artifact_path(row.iloc[0]["artifact_path"])
     if _cache.get("version") != version:
         _cache.clear()
-        bundle = joblib.load(path)
-        _cache.update(version=version, pipe=bundle["pipeline"],
-                      reference=bundle["reference"])
+        _cache.update(version=version, bundle=joblib.load(path))
         log.info("loaded model %s", version)
-    return _cache["version"], _cache["pipe"]
+    return _cache["version"], _cache["bundle"]["pipeline"]
 
 
 def active_bundle():
-    """Model plus the reference row explanations are measured against."""
+    """Version, pipeline, and the artifact it came out of.
+
+    The bundle carries the population statistics `features.build` needs and the
+    reference row explanations are measured against — both fitted at training
+    time, so serving cannot drift away from them.
+    """
     version, pipe = active_model()
-    return version, pipe, _cache["reference"]
+    return version, pipe, _cache["bundle"]
 
 
 def leads_needing_score(version):
@@ -59,8 +85,16 @@ def leads_needing_score(version):
     this model, or when it has aged past what its last score was computed at.
     Once target_age pins to the boundary, the stored value matches and the lead
     drops out for good.
+
+    The horizon filter is what keeps this cheap. A lead written more than
+    `queue_horizon_hours` ago is already past the horizon -- its age only grows
+    -- so it can never appear in the queue again and there is nothing to score.
+    Without that line every run walked all 50k curated leads and did one indexed
+    lookup per lead, every five minutes, to re-learn that 49.7k of them were
+    finished; the index on pe.predictions had taken 36 million scans by the time
+    it was noticed.
     """
-    support = CFG["priority"]["decay_support_minutes"]
+    pr = CFG["priority"]
     return query(f"""
         WITH ref AS (SELECT {clock_sql()} AS at)
         SELECT l.*,
@@ -78,13 +112,15 @@ def leads_needing_score(version):
             ORDER BY p.predicted_at DESC
             LIMIT 1
         ) last ON TRUE
-        WHERE last.scored_at_age_minutes IS NULL
-           OR last.scored_at_age_minutes < LEAST(
-                  l.minutes_since_abandonment
-                    + GREATEST(EXTRACT(EPOCH FROM (r.at - l.created_at)) / 60.0, 0),
-                  :support
-              ) - 0.5
-    """, version=version, support=support)
+        WHERE l.created_at >= r.at - make_interval(hours => :horizon)
+          AND (last.scored_at_age_minutes IS NULL
+               OR last.scored_at_age_minutes < LEAST(
+                      l.minutes_since_abandonment
+                        + GREATEST(EXTRACT(EPOCH FROM (r.at - l.created_at)) / 60.0, 0),
+                      :support
+                  ) - 0.5)
+    """, version=version, support=pr["decay_support_minutes"],
+        horizon=pr["queue_horizon_hours"])
 
 
 def advance_clock(df):
@@ -116,7 +152,8 @@ def run(limit=None):
         _snapshot(version)
         return {"scored": 0, "model_version": version}
 
-    prob = pipe.predict_proba(features.build(advance_clock(df)))[:, 1]
+    prob = pipe.predict_proba(
+        features.build(advance_clock(df), _cache["bundle"].get("feature_ref")))[:, 1]
     batch_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
 
     out = df[["lead_id"]].copy()
@@ -147,7 +184,6 @@ def _snapshot(version, newly_scored=0):
     stationary in this data (9.5% -> 7.4%), so this is measured every run rather
     than assumed away.
     """
-    from sqlalchemy import text
     with engine.begin() as c:
         c.execute(text("""
             INSERT INTO pe.monitoring_snapshots

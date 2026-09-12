@@ -5,7 +5,6 @@ was given, and the view decays only the time that has passed *since* then.
 """
 import numpy as np
 import pytest
-from sqlalchemy import text
 
 from priority_engine import db
 from priority_engine.config import CFG

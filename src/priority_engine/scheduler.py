@@ -53,8 +53,7 @@ def main():
     log.info("scheduled: training=%s prediction=%s", jobs["train_cron"], jobs["predict_cron"])
 
     if jobs["run_on_startup"]:
-        # Training first: a fresh stack has no model, and scoring needs one.
-        # A fresh stack has no model, so train before the first scoring pass.
+        # A fresh stack has no model, and scoring needs one.
         if not db.scalar("SELECT count(*) FROM pe.model_versions WHERE is_active"):
             _tracked("training", train.run, trigger="startup")
         _tracked("prediction", predict.run, trigger="startup")

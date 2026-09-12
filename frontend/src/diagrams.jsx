@@ -132,7 +132,6 @@ export function PipelineDiagram() {
 export function RegimeDiagram() {
   const L = 60, R = 748, T = 44, B = 236;         // plot frame
   const XB = 336;                                  // 360-minute boundary
-  const XC = 604;                                  // decay cap
   const lbl = { fontSize: 11.5, fill: "currentColor", fontFamily: "IBM Plex Sans, sans-serif" };
   const mono = { fontSize: 10, fill: "var(--ink-3)", fontFamily: "IBM Plex Mono, monospace" };
 
@@ -140,7 +139,7 @@ export function RegimeDiagram() {
     <Fig
       viewBox="0 0 780 300"
       label="Inside the model's trained range the score is re-inferred; past the boundary its last answer decays in SQL, and only the time beyond the boundary is decayed."
-      caption="The split sits exactly at the edge of the model's evidence. Inside, we ask the model again with the lead's clock advanced. Outside, its last answer becomes an anchor that decays in SQL — counting only the time past the boundary, because the model already priced everything before it."
+      caption="The split sits exactly at the edge of the model's evidence. Inside, we ask the model again with the lead's clock advanced. Outside, its last answer becomes an anchor that decays in SQL — counting only the time past the boundary, because the model already priced everything before it. The queue ends at 24h because that is where the decay has taken even the best remaining lead under 1%."
     >
       <Arrow id="regime-arrow" />
 
@@ -162,19 +161,14 @@ export function RegimeDiagram() {
 
       {/* boundary */}
       <line x1={XB} y1={T} x2={XB} y2={B + 8} stroke="var(--blue)" strokeWidth="2" />
-      <line x1={XC} y1={T} x2={XC} y2={B + 8} stroke="var(--orange)"
-            strokeWidth="1.5" strokeDasharray="5 4" />
       <line x1={R} y1={T} x2={R} y2={B + 8} stroke="currentColor"
             strokeWidth="1.5" strokeDasharray="5 4" opacity="0.6" />
 
       {/* value curve: same downward trend, two mechanisms */}
       <path d={`M ${L} 72 C 150 88, 250 118, ${XB} 146`}
             fill="none" stroke="var(--blue)" strokeWidth="2.5" strokeLinecap="round" />
-      <path d={`M ${XB} 146 C 420 186, 520 212, ${XC} 220`}
+      <path d={`M ${XB} 146 C 450 194, 580 216, ${R} 222`}
             fill="none" stroke="var(--orange)" strokeWidth="2.5" strokeLinecap="round" />
-      <path d={`M ${XC} 220 L ${R} 220`}
-            fill="none" stroke="var(--orange)" strokeWidth="2.5"
-            strokeDasharray="4 4" strokeLinecap="round" />
 
       {/* re-inference ticks inside the window */}
       {[0, 1, 2, 3, 4, 5, 6].map((i) => {
@@ -206,8 +200,7 @@ export function RegimeDiagram() {
       {[
         [L, "0", "captured"],
         [XB, "360 min", "boundary"],
-        [XC, "30 h", "decay capped"],
-        [R, "48 h", "leaves queue"],
+        [R, "24 h", "leaves queue"],
       ].map(([x, t, sub]) => (
         <g key={t}>
           <line x1={x} y1={B} x2={x} y2={B + 6} stroke="currentColor" strokeWidth="1.25" />
@@ -240,15 +233,17 @@ export function FeatureRoutingDiagram() {
     ["Behaviour", ["visited_offer_page", "offer_views_last_7d", "sessions_last_7d",
                    "has_previous_purchase", "incoming_call_last_24h"], 34, "3.5×"],
     ["Urgency", ["minutes_since_abandonment", "days_to_policy_expiry",
-                 "is_expired", "expiry × abandonment"], 148, "2.1×"],
+                 "days_since_last_visit", "is_expired", "expiry × abandonment"],
+     154, "2.1×"],
     ["Offer & context", ["price_pct_in_product", "discount_percent",
                          "channel · payment_type", "insurance_company",
-                         "device · partner"], 244, "1.2×"],
+                         "device · partner", "price / discount missing flags"],
+     280, "1.2×"],
   ];
 
   return (
     <Fig
-      viewBox="0 0 780 450"
+      viewBox="0 0 780 500"
       label="Three feature groups feed the model, three columns are excluded, and expected margin bypasses the model to join at the ranking step."
       caption="Expected margin never reaches the model — it is a fixed band of price, so as an input it adds only collinearity. It enters one step later, as the business weight that turns a probability into an ordering."
     >
@@ -276,7 +271,7 @@ export function FeatureRoutingDiagram() {
       <rect x="296" y="118" width="152" height="130" rx="6"
             fill="var(--surface)" stroke="var(--blue)" strokeWidth="1.75" />
       <text x="372" y="150" textAnchor="middle" {...lbl} fontWeight="600">model</text>
-      <text x="372" y="169" textAnchor="middle" {...mono}>logreg vs gbdt</text>
+      <text x="372" y="169" textAnchor="middle" {...mono}>4 models · 2 baselines</text>
       <text x="372" y="184" textAnchor="middle" {...mono}>temporal holdout</text>
       <text x="372" y="199" textAnchor="middle" {...mono}>class-weighted</text>
       <text x="372" y="214" textAnchor="middle" {...mono}>isotonic calibration</text>
@@ -299,15 +294,15 @@ export function FeatureRoutingDiagram() {
             fill="var(--blue)">the call list</text>
 
       {/* margin bypasses the model */}
-      <rect x="14" y="378" width="214" height="48" rx="6"
+      <rect x="14" y="430" width="214" height="48" rx="6"
             fill="var(--surface-2)" stroke="var(--orange)" strokeWidth="1.5"
             strokeDasharray="5 3" />
-      <text x="26" y="398" {...lbl} fontWeight="600">expected_margin</text>
-      <text x="26" y="415" {...mono}>a fixed % band of price · corr 0.99</text>
-      <path d="M 232 402 C 340 402, 420 300, 508 208"
+      <text x="26" y="450" {...lbl} fontWeight="600">expected_margin</text>
+      <text x="26" y="467" {...mono}>a fixed % band of price · corr 0.99</text>
+      <path d="M 232 454 C 350 454, 430 320, 508 210"
             fill="none" stroke="var(--orange)" strokeWidth="1.75"
             markerEnd="url(#feat-arrow)" />
-      <text x="352" y="380" textAnchor="middle" {...mono} fill="var(--orange)"
+      <text x="360" y="432" textAnchor="middle" {...mono} fill="var(--orange)"
             fontSize="10">skips the model — enters as the weight</text>
 
       {/* excluded */}
@@ -336,7 +331,9 @@ export function FeatureRoutingDiagram() {
 /* ------------------------------------------------------------------ */
 export function SplitDiagram() {
   const L = 56, R = 740, TOP = 40, BASE = 132;
-  const XS = 552;                                   // train / holdout cut
+  // Two cuts, both by time: train | validation | holdout. July chooses the
+  // algorithm, August is scored once afterwards.
+  const XV = 470, XS = 604;
   const lbl = { fontSize: 11.5, fill: "currentColor", fontFamily: "IBM Plex Sans, sans-serif" };
   const mono = { fontSize: 10, fill: "var(--ink-3)", fontFamily: "IBM Plex Mono, monospace" };
   const y = (rate) => BASE - (rate - 6.5) * 26;     // 6.5%..10% band
@@ -344,25 +341,30 @@ export function SplitDiagram() {
   return (
     <Fig
       viewBox="0 0 780 232"
-      label="Conversion holds near 9.5 percent for four months then falls to 7.4 percent, so the holdout is the most recent slice rather than a random sample."
-      caption="A random split would let the model learn from the drop and be tested on the period before it. Holding out the newest slice reproduces what production actually faces: fit the past, predict the future."
+      label="Conversion holds near 9.5 percent for four months then falls to 7.4 percent. The data is cut by time into three windows: training, a validation window that chooses the algorithm, and a holdout that is scored once afterwards."
+      caption="A random split would let the model learn from the drop and be tested on the period before it. Two cuts rather than one because choosing the algorithm and quoting an honest number are different jobs: the validation window picks the winner, the holdout is read exactly once after that choice is fixed."
     >
       <Arrow id="split-arrow" />
 
-      <rect x={L} y={TOP} width={XS - L} height={BASE - TOP + 26}
+      <rect x={L} y={TOP} width={XV - L} height={BASE - TOP + 26}
             fill="var(--surface-2)" opacity="0.6" rx="4" />
+      <rect x={XV} y={TOP} width={XS - XV} height={BASE - TOP + 26}
+            fill="var(--surface-2)" opacity="0.95" rx="4" />
       <rect x={XS} y={TOP} width={R - XS} height={BASE - TOP + 26}
             fill="var(--pale)" opacity="0.8" rx="4" />
 
-      <text x={(L + XS) / 2} y={TOP - 14} textAnchor="middle" {...lbl} fontWeight="600">
-        train — 40,620 rows
+      <text x={(L + XV) / 2} y={TOP - 14} textAnchor="middle" {...lbl} fontWeight="600">
+        train — 31,204 rows
+      </text>
+      <text x={(XV + XS) / 2} y={TOP - 14} textAnchor="middle" {...lbl} fontWeight="600">
+        validation — 9,416
       </text>
       <text x={(XS + R) / 2} y={TOP - 14} textAnchor="middle" {...lbl} fontWeight="600"
             fill="var(--blue)">holdout — 9,380</text>
 
       {/* conversion line */}
-      <path d={`M ${L + 10} ${y(9.8)} L 180 ${y(9.5)} L 300 ${y(9.6)} L 420 ${y(9.4)}
-                L ${XS} ${y(9.3)} L 620 ${y(7.6)} L ${R - 10} ${y(7.4)}`}
+      <path d={`M ${L + 10} ${y(9.8)} L 180 ${y(9.5)} L 300 ${y(9.6)} L ${XV} ${y(9.4)}
+                L ${XS} ${y(9.3)} L 660 ${y(7.6)} L ${R - 10} ${y(7.4)}`}
             fill="none" stroke="var(--blue)" strokeWidth="2.5" strokeLinejoin="round" />
       <circle cx={XS} cy={y(9.3)} r="4" fill="var(--blue)" />
       <circle cx={R - 10} cy={y(7.4)} r="4" fill="var(--blue)" />
@@ -372,17 +374,22 @@ export function SplitDiagram() {
         7.4%
       </text>
 
-      {/* the cut */}
+      {/* the two cuts */}
+      <line x1={XV} y1={TOP - 4} x2={XV} y2={BASE + 34} stroke="currentColor"
+            strokeWidth="1.5" strokeDasharray="3 3" opacity="0.55" />
       <line x1={XS} y1={TOP - 4} x2={XS} y2={BASE + 34} stroke="var(--blue)"
             strokeWidth="2" />
+      <text x={XV + 6} y={BASE + 30} {...mono} fontSize="9.5">
+        picks the algorithm
+      </text>
       <text x={XS + 8} y={BASE + 30} {...mono} fontSize="9.5" fill="var(--blue)">
-        cut by time, not at random
+        read once, at the end
       </text>
 
       {/* axis */}
       <line x1={L} y1={BASE + 26} x2={R} y2={BASE + 26} stroke="currentColor"
             strokeWidth="1.25" />
-      {[[L, "Apr"], [190, "May"], [320, "Jun"], [450, "Jul"], [610, "Aug"]].map(([x, m]) => (
+      {[[L, "Apr"], [190, "May"], [320, "Jun"], [450, "Jul"], [640, "Aug"]].map(([x, m]) => (
         <g key={m}>
           <line x1={x} y1={BASE + 26} x2={x} y2={BASE + 32} stroke="currentColor"
                 strokeWidth="1.25" />
@@ -391,6 +398,58 @@ export function SplitDiagram() {
       ))}
       <text x={R} y={BASE + 66} textAnchor="end" {...mono} fontSize="9">
         label maturity: the newest 7 days are excluded — their outcome isn't known yet
+      </text>
+    </Fig>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Propensity is not uplift — the limit the data cannot settle         */
+/* ------------------------------------------------------------------ */
+export function UpliftQuadrantDiagram() {
+  const lbl = { fontSize: 12, fill: "currentColor", fontFamily: "IBM Plex Sans, sans-serif" };
+  const mono = { fontSize: 10, fill: "var(--ink-3)", fontFamily: "IBM Plex Mono, monospace" };
+  const L = 96, R = 604, T = 40, B = 300, M = (L + R) / 2, Y = (T + B) / 2;
+
+  const cells = [
+    ["Sure things", "buy anyway — a call is wasted", M, T, R, Y, false],
+    ["Persuadables", "the only group a call creates", L, T, M, Y, true],
+    ["Lost causes", "will not buy either way", L, Y, M, B, false],
+    ["Do not disturb", "a call makes it worse", M, Y, R, B, false],
+  ];
+
+  return (
+    <Fig
+      viewBox="0 0 700 360"
+      label="Ranking by who is likely to buy cannot separate customers a call would persuade from customers who would have bought anyway."
+      caption="What the model ranks is the vertical axis. The horizontal one — whether the call is what caused the sale — is not in this dataset at all, so the top-right and top-left cells are indistinguishable to it. Only a randomised holdout separates them."
+    >
+      <Arrow id="uplift-arrow" />
+
+      {cells.map(([title, sub, x0, y0, x1, y1, hot]) => (
+        <g key={title}>
+          <rect x={x0 + 3} y={y0 + 3} width={x1 - x0 - 6} height={y1 - y0 - 6} rx="7"
+                fill={hot ? "var(--pale)" : "var(--surface-2)"}
+                stroke={hot ? "var(--blue)" : "currentColor"}
+                strokeWidth={hot ? 1.75 : 1}
+                strokeDasharray={hot ? "none" : "4 3"} opacity={hot ? 1 : 0.75} />
+          <text x={(x0 + x1) / 2} y={(y0 + y1) / 2 - 4} textAnchor="middle" {...lbl}
+                fontWeight="600" fill={hot ? "var(--blue)" : "currentColor"}>{title}</text>
+          <text x={(x0 + x1) / 2} y={(y0 + y1) / 2 + 14} textAnchor="middle" {...mono}>{sub}</text>
+        </g>
+      ))}
+
+      {/* axes */}
+      <line x1={L} y1={B} x2={R} y2={B} stroke="currentColor" strokeWidth="1.25"
+            markerEnd="url(#uplift-arrow)" opacity="0.6" />
+      <line x1={L} y1={B} x2={L} y2={T} stroke="currentColor" strokeWidth="1.25"
+            markerEnd="url(#uplift-arrow)" opacity="0.6" />
+      <text x={(L + R) / 2} y={B + 24} textAnchor="middle" {...mono} fontSize="10.5">
+        would they have bought without the call?  →  not measurable here
+      </text>
+      <text x={L - 14} y={(T + B) / 2} textAnchor="middle" {...mono} fontSize="10.5"
+            transform={`rotate(-90 ${L - 14} ${(T + B) / 2})`}>
+        likely to buy  →  what we rank on
       </text>
     </Fig>
   );

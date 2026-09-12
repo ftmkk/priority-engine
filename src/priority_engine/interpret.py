@@ -39,10 +39,6 @@ def logit(p):
     return np.log(p / (1 - p))
 
 
-def sigmoid(z):
-    return 1.0 / (1.0 + np.exp(-z))
-
-
 def reference_row(X):
     """The 'average lead' every explanation is measured against."""
     ref = {}
@@ -113,13 +109,13 @@ def _unwrap(pipe):
     return None
 
 
-def explain(pipe, lead_row, reference, top_n=10):
+def explain(pipe, lead_row, reference, feature_ref=None, top_n=10):
     """Per-feature contribution to one lead's score, in log-odds.
 
     Each contribution answers: how much higher (or lower) is this lead's score
     than it would be if this one feature were average, everything else held?
     """
-    X = features.build(lead_row).iloc[[0]]
+    X = features.build(lead_row, feature_ref).iloc[[0]]
     p_actual = float(pipe.predict_proba(X)[:, 1][0])
 
     # the same lead with every feature set to the reference — the baseline
@@ -164,14 +160,14 @@ def explain(pipe, lead_row, reference, top_n=10):
     }
 
 
-def sweep(pipe, lead_row, feature, points=24):
+def sweep(pipe, lead_row, feature, feature_ref=None, points=24):
     """The model's response curve for one lead along one feature.
 
     Everything about the lead is held fixed and the single feature is swept, so
     the curve is the model's actual behaviour for this lead — not a population
     average.
     """
-    X = features.build(lead_row).iloc[[0]]
+    X = features.build(lead_row, feature_ref).iloc[[0]]
     if feature not in X.columns:
         raise ValueError(f"unknown feature: {feature}")
 

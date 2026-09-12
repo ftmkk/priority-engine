@@ -12,6 +12,7 @@ const post = async (path) => {
 
 export const api = {
   health: () => get("/health"),
+  clock: () => get("/clock"),
   summary: () => get("/summary"),
   queue: (p = {}) =>
     get("/queue?" + new URLSearchParams(Object.entries(p).filter(([, v]) => v))),
@@ -26,6 +27,8 @@ export const api = {
   scoreDistribution: () => get("/analytics/score-distribution"),
   decayImpact: () => get("/analytics/decay-impact"),
   queueComposition: () => get("/analytics/queue-composition"),
+  segments: () => get("/segments"),
+  segmentScatter: (limit = 2000) => get(`/segments/scatter?limit=${limit}`),
   importance: () => get("/interpret/importance"),
   sweepable: () => get("/interpret/features"),
   explain: (leadId) => get(`/interpret/explain/${leadId}`),
@@ -36,6 +39,17 @@ export const api = {
   runTrain: () => post("/jobs/train"),
   runPredict: () => post("/jobs/predict"),
 };
+
+/* The queue is read at a reference instant, which on this historical export is
+   frozen (priority.current_time). Everything that renders a time renders that
+   one, so nothing on screen implies a live clock the data does not have. */
+export const clockLabel = (at) =>
+  at == null
+    ? "—"
+    : new Date(at).toLocaleString("en-GB", {
+        day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+        timeZone: "UTC",
+      }) + " UTC";
 
 export const pct = (x, d = 1) => (x == null ? "—" : `${(x * 100).toFixed(d)}%`);
 export const num = (x) =>

@@ -69,6 +69,36 @@ export const tooltipStyle = {
 };
 
 export const axisProps = {
-  tick: { fill: "var(--ink-3)", fontSize: 11, fontFamily: "IBM Plex Mono, monospace" },
-  stroke: "var(--line-strong)",
+  tick: { fill: "var(--ink-3)", fontSize: 10, fontFamily: "IBM Plex Mono, monospace" },
+  stroke: "var(--line)",
+  tickLine: false,
+  axisLine: { stroke: "var(--line)" },
 };
+
+
+/** Keeps one failing panel from taking the whole app down with it. */
+export class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    console.error("panel crashed:", error, info);
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="state err">
+        This view hit an error: {String(this.state.error.message || this.state.error)}
+        <div style={{ marginTop: 10 }}>
+          <button className="btn" onClick={() => this.setState({ error: null })}>
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
+}

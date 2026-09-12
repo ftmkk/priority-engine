@@ -6,9 +6,24 @@ csv_path: data/leads.csv
 artifacts_dir: artifacts
 
 train:
-  algorithm: gbdt          # gbdt | logreg  (both are tried, best PR-AUC wins)
+  # What the training job fits. Names come from features.MODELS, and each one is
+  # scored on the validation window with the best PR-AUC registered active.
+  #
+  # One entry, deliberately. Notebook 03 runs the full comparison -- logistic
+  # regression against gradient boosting, a random forest and extra trees -- and
+  # the linear model wins it by ~8% PR-AUC, for a reason that is structural
+  # rather than incidental: the data has no deep interactions for an ensemble to
+  # find. Re-run that notebook when the data changes; until it says otherwise,
+  # training three models to throw them away on every run is cost without an
+  # answer. Add them back here to see the comparison in the registry.
+  candidates: [logreg]
   holdout_days: 28         # August is held out: conversion drops 9.5% -> 7.4% there,
-                           # so the split is by time, never random.
+                           # so the split is by time, never random. Scored once,
+                           # after the algorithm is already chosen.
+  validation_days: 28      # the window before the holdout, used to choose the
+                           # algorithm. Selecting on the holdout and then quoting
+                           # it as the honest number is selection-on-test; these
+                           # are two different jobs, so they get two windows.
   label_maturity_days: 7   # outcomes younger than this aren't known yet
   random_state: 42
 
@@ -37,18 +52,29 @@ priority:
   decay_support_minutes: 360
   decay_per_hour: 0.778     # applies only beyond the boundary
 
-  # A call queue only holds leads worth calling. Past this age a lead leaves the
-  # queue entirely rather than sitting at the bottom forever -- nobody rings a
-  # three-day-old abandoned cart, and keeping them in would mean decaying scores
-  # over months, which the fitted constant cannot support.
-  queue_horizon_hours: 48
-  # Hard ceiling on the extrapolated decay. Without it, an old lead underflows
-  # (0.778^3600h is not a representable number) and the ranking breaks.
-  decay_max_excess_hours: 24
-  # Reference clock for "now". This dataset is a fixed historical snapshot, so
-  # wall-clock time would put every lead centuries past its support. `dataset`
-  # reads the newest created_at in the data; production would use `wall`.
-  clock: dataset            # dataset | wall
+  # A call queue only holds leads worth calling, and the horizon is where the
+  # decay says calling stops paying. Carrying the anchor scores forward at
+  # 0.778/h: by 19.5h of total age the single best lead in the queue is under 1%
+  # (and under a tenth of the 9.2% base rate), and by 24h the whole queue is
+  # under 0.5%. Everything from there to the old 48h was dead rows occupying a
+  # ranked list. So the queue covers 24 hours, and every lead inside it is
+  # scored and tiered; past it a lead leaves the queue rather than sitting at
+  # the bottom of it forever. Notebook 04, section 5 measures this.
+  queue_horizon_hours: 24
+  # Hard ceiling on the extrapolated decay: without it an old lead underflows
+  # (0.778^3600h is not a representable number) and the ranking breaks. Set to
+  # horizon - support so it never binds inside the queue -- raise it with the
+  # horizon if the horizon ever grows.
+  decay_max_excess_hours: 18
+  # Reference clock for "now".
+  #   dataset            -> the newest created_at in the data (this file is a
+  #                         fixed historical export, so a real clock would put
+  #                         every lead months past its support and empty the queue)
+  #   null               -> the real wall clock; what production runs on
+  #   2026-08-28T23:58Z  -> any explicit instant, for replaying a moment
+  # The API reports the resolved value and whether it is pinned, so the dashboard
+  # can say so rather than looking stale.
+  current_time: dataset
   tiers:                    # percentile cutoffs on expected value
     P1: 95                  # call now
     P2: 80                  # call today

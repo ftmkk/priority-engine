@@ -48,6 +48,31 @@ def test_build_leaves_no_nulls_when_price_is_missing():
     assert X["discount_missing"].sum() == 11
 
 
+def test_features_do_not_depend_on_the_batch_a_lead_is_scored_in():
+    """price_pct_in_product and the imputation medians are population statistics.
+
+    Taken from the batch, the same lead scored 0.47 among 2,000 leads, 0.37 among
+    50 and 1.0 when explained on its own — so the queue and the explanation panel
+    disagreed about the same lead. They come from the fitted reference now.
+    """
+    leads = make_leads(400)
+    ref = features.fit_reference(leads)
+    alone = features.build(leads.iloc[[7]], ref)["price_pct_in_product"].iloc[0]
+    small = features.build(leads.iloc[:20], ref)["price_pct_in_product"].iloc[7]
+    whole = features.build(leads, ref)["price_pct_in_product"].iloc[7]
+    assert alone == small == whole
+
+
+def test_a_missing_price_is_filled_from_the_reference_not_the_batch():
+    leads = make_leads(400)
+    ref = features.fit_reference(leads)
+    one = leads.iloc[[3]].copy()
+    one.loc[one.index[0], "price"] = None
+    X = features.build(one, ref)
+    assert X["price_missing"].iloc[0] == 1
+    assert X["price_pct_in_product"].notna().all()   # a batch of one has no median
+
+
 def test_excluded_columns_never_reach_the_model():
     X = features.build(make_leads())
     for col in ("expected_margin", "price_comparisons_last_7d", "city"):
@@ -58,6 +83,16 @@ def test_is_expired_matches_negative_expiry():
     df = make_leads()
     X = features.build(df)
     assert (X["is_expired"] == (df["days_to_policy_expiry"] < 0).astype(int)).all()
+
+
+def test_every_known_model_builds_and_a_typo_does_not():
+    """A typo in config.candidates should fail loudly, not fall through to a
+    default — which is what the old if/else did with anything but 'logreg'."""
+    from priority_engine.config import CFG
+    for algo in list(features.MODELS) + CFG["train"]["candidates"]:
+        assert features.make_pipeline(algo) is not None
+    with pytest.raises(ValueError):
+        features.make_pipeline("randomforest")     # near-miss of a real name
 
 
 def test_pipeline_fits_and_predicts_in_range():
