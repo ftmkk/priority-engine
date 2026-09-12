@@ -19,8 +19,9 @@ from sklearn.compose import ColumnTransformer
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sqlalchemy import select
 
-from . import features
+from . import features, views
 from .db import engine, query, session
 from .models import LeadSegment, Segment
 
@@ -90,7 +91,7 @@ def _label(seg_means, overall, n_leads, total):
 
 def fit(model_version, random_state=42):
     """Cluster every lead, project to 2-D, and write both to Postgres."""
-    df = query("SELECT * FROM pe.v_leads_curated")
+    df = query(select(views.v_leads_curated))
     if df.empty:
         raise RuntimeError("no leads to segment")
 

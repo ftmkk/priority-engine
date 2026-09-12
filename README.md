@@ -263,8 +263,42 @@ reports the resolved instant and whether it is pinned. DB credentials come from
 
 Three sections: **Dashboard** (overview, model, segments, monitoring — four tabs, each
 with its own URL), **Call queue** (who to call, filterable, with a per-lead explanation
-panel beside it), and **How it works** (the case in seven slides, one claim and one live
+panel beside it), and **How it works** (the case in eight slides, one claim and one live
 chart each).
+
+The backtest slides (problem → running) are measured against a time-held-out sample, which
+proves the ranking *would have* worked — every one of those leads was still called the old
+way. Whether reps calling *from the ranking* actually sell more is a separate, causal
+question, and answering it — or comparing any two model candidates for a real rollout —
+takes a live **A/B test**, run like this:
+
+1. **Split live traffic, not historical rows.** Randomize assignment at the *lead* level
+   across arms — e.g. control (today's order), a heuristic baseline, and the model queue —
+   so no rep works two arms on the same lead and any gap in outcomes can be pinned on the arm.
+2. **Pick one primary metric up front.** Conversion rate within the arm's call window, fixed
+   before the test starts. Secondary metrics (revenue per lead, time-to-contact) get reported
+   but don't decide the winner.
+3. **Size the sample before starting**, from the base rate (≈7–9%) and the smallest lift
+   worth acting on — a power calculation (two-proportion z-test, 80% power, α = 0.05) sets
+   leads-per-arm and run length. Not "run it until it looks good."
+4. **Read it once**, at that pre-registered stopping point: compare conversion per arm with a
+   two-proportion z-test (or chi-square), report the 95% CI on the difference, and require the
+   interval to exclude zero before calling a winner. Peeking daily and stopping early on a
+   promising gap is how noise gets sold as lift.
+5. **Re-run, don't reuse.** A win says the ranking beats the alternative for *this* offer,
+   market regime, and rep pool, right now — it expires the same way the backtest does, and
+   needs re-running whenever any of those change.
+
+The last "How it works" slide, **Proving it live**, walks through these same five steps next
+to a template chart — illustrative numbers only, no experiment has run yet:
+
+```
+Conversion by arm (95% CI), n = 5,000 leads/arm, fixed 2-week window
+
+Control (today's order)     7.4%  [6.6 – 8.2]
+Heuristic (rule of thumb)  11.8%  [10.8 – 12.8]
+Model (ranked queue)       20.6%  [19.2 – 22.0]
+```
 
 Every figure there is generated from Postgres at request time rather than loaded from
 disk — code-generated, never hand-made, and never stale. The static counterparts live in

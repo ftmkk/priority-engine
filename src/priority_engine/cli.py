@@ -3,8 +3,10 @@ import json
 import logging
 
 import typer
+from sqlalchemy import select
 
 from . import db, ingest, predict, train
+from .models import ModelVersion
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 app = typer.Typer(add_completion=False, help="Lead Priority Engine")
@@ -51,8 +53,11 @@ def evaluate():
     """Print the registered metrics for the active model."""
     db.wait_ready()
     db.migrate()
-    row = db.query("SELECT version, algorithm, metrics, selection_metrics, "
-                   "candidate_results FROM pe.model_versions WHERE is_active")
+    row = db.query(
+        select(ModelVersion.version, ModelVersion.algorithm, ModelVersion.metrics,
+               ModelVersion.selection_metrics, ModelVersion.candidate_results)
+        .where(ModelVersion.is_active)
+    )
     if row.empty:
         typer.echo("no active model — run `train` first")
         raise typer.Exit(1)

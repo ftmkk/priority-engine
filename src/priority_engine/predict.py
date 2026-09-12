@@ -22,11 +22,12 @@ from pathlib import Path
 
 import joblib
 import numpy as np
-from sqlalchemy import text
+from sqlalchemy import Float, cast, func, insert, literal, select, true
 
-from . import features
+from . import features, views
 from .config import CFG
-from .db import clock_sql, engine, query
+from .db import clock_expr, engine, query
+from .models import ModelVersion, MonitoringSnapshot, Prediction
 
 log = logging.getLogger(__name__)
 _cache = {}
@@ -55,7 +56,8 @@ def _artifact_path(stored):
 
 def active_model():
     """Load the active model, reusing it until a newer version is registered."""
-    row = query("SELECT version, artifact_path FROM pe.model_versions WHERE is_active")
+    row = query(select(ModelVersion.version, ModelVersion.artifact_path)
+                .where(ModelVersion.is_active))
     if row.empty:
         raise RuntimeError("no active model — run `train` first")
     version, path = row.iloc[0]["version"], _artifact_path(row.iloc[0]["artifact_path"])
@@ -95,32 +97,49 @@ def leads_needing_score(version):
     it was noticed.
     """
     pr = CFG["priority"]
-    return query(f"""
-        WITH ref AS (SELECT {clock_sql()} AS at)
-        SELECT l.*,
-               LEAST(
-                   l.minutes_since_abandonment
-                     + GREATEST(EXTRACT(EPOCH FROM (r.at - l.created_at)) / 60.0, 0),
-                   :support
-               ) AS target_age
-        FROM pe.v_leads_curated l
-        CROSS JOIN ref r
-        LEFT JOIN LATERAL (
-            SELECT p.scored_at_age_minutes
-            FROM pe.predictions p
-            WHERE p.lead_id = l.lead_id AND p.model_version = :version
-            ORDER BY p.predicted_at DESC
-            LIMIT 1
-        ) last ON TRUE
-        WHERE l.created_at >= r.at - make_interval(hours => :horizon)
-          AND (last.scored_at_age_minutes IS NULL
-               OR last.scored_at_age_minutes < LEAST(
-                      l.minutes_since_abandonment
-                        + GREATEST(EXTRACT(EPOCH FROM (r.at - l.created_at)) / 60.0, 0),
-                      :support
-                  ) - 0.5)
-    """, version=version, support=pr["decay_support_minutes"],
-        horizon=pr["queue_horizon_hours"])
+    vc = views.v_leads_curated
+
+    ref = select(clock_expr().label("at")).cte("ref")
+    target_age = func.least(
+        vc.c.minutes_since_abandonment
+        + func.greatest(func.extract("epoch", ref.c.at - vc.c.created_at) / 60.0, 0),
+        pr["decay_support_minutes"],
+    )
+
+    # The newest prediction per lead under this model version -- the Core
+    # equivalent of the original's `LEFT JOIN LATERAL ... ORDER BY predicted_at
+    # DESC LIMIT 1`, expressed as a ranked subquery instead.
+    ranked = (
+        select(
+            Prediction.lead_id,
+            Prediction.scored_at_age_minutes,
+            func.row_number().over(
+                partition_by=Prediction.lead_id,
+                order_by=Prediction.predicted_at.desc(),
+            ).label("rn"),
+        )
+        .where(Prediction.model_version == version)
+        .subquery()
+    )
+    last = (
+        select(ranked.c.lead_id, ranked.c.scored_at_age_minutes)
+        .where(ranked.c.rn == 1)
+        .subquery("last")
+    )
+
+    stmt = (
+        select(vc, target_age.label("target_age"))
+        .select_from(
+            vc.join(ref, true()).outerjoin(last, last.c.lead_id == vc.c.lead_id)
+        )
+        .where(vc.c.created_at >= ref.c.at
+               - func.make_interval(0, 0, 0, 0, pr["queue_horizon_hours"]))
+        .where(
+            last.c.scored_at_age_minutes.is_(None)
+            | (last.c.scored_at_age_minutes < target_age - 0.5)
+        )
+    )
+    return query(stmt)
 
 
 def advance_clock(df):
@@ -184,19 +203,25 @@ def _snapshot(version, newly_scored=0):
     stationary in this data (9.5% -> 7.4%), so this is measured every run rather
     than assumed away.
     """
+    qp = views.v_current_priority
+    stmt = insert(MonitoringSnapshot).from_select(
+        ["captured_at", "model_version", "scored_leads", "mean_probability",
+         "p10_probability", "p90_probability", "observed_base_rate",
+         "expected_base_rate", "detail"],
+        select(
+            func.now(),
+            literal(version),
+            func.count(),
+            func.avg(qp.c.decayed_probability),
+            func.percentile_cont(0.1).within_group(qp.c.decayed_probability),
+            func.percentile_cont(0.9).within_group(qp.c.decayed_probability),
+            func.avg(cast(qp.c.completed_purchase, Float)),
+            func.avg(qp.c.probability),
+            func.jsonb_build_object(
+                "newly_scored", newly_scored,
+                "stale", func.count().filter(qp.c.is_stale),
+            ),
+        ).select_from(qp),
+    )
     with engine.begin() as c:
-        c.execute(text("""
-            INSERT INTO pe.monitoring_snapshots
-              (captured_at, model_version, scored_leads, mean_probability,
-               p10_probability, p90_probability, observed_base_rate,
-               expected_base_rate, detail)
-            SELECT now(), :v, count(*),
-                   avg(decayed_probability),
-                   percentile_cont(0.1) WITHIN GROUP (ORDER BY decayed_probability),
-                   percentile_cont(0.9) WITHIN GROUP (ORDER BY decayed_probability),
-                   avg(completed_purchase::float),
-                   avg(probability),
-                   jsonb_build_object('newly_scored', :n,
-                                      'stale', count(*) FILTER (WHERE is_stale))
-            FROM pe.v_current_priority
-        """), {"v": version, "n": newly_scored})
+        c.execute(stmt)

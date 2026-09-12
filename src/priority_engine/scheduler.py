@@ -9,10 +9,11 @@ from datetime import datetime, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from sqlalchemy import func, select
 
 from . import db, predict, train
 from .config import CFG
-from .models import JobRun
+from .models import JobRun, ModelVersion
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("scheduler")
@@ -61,7 +62,8 @@ def main():
 
     if jobs["run_on_startup"]:
         # A fresh stack has no model, and scoring needs one.
-        if not db.scalar("SELECT count(*) FROM pe.model_versions WHERE is_active"):
+        if not db.scalar(select(func.count()).select_from(ModelVersion)
+                         .where(ModelVersion.is_active)):
             _tracked("training", train.run, trigger="startup")
         _tracked("prediction", predict.run, trigger="startup")
 

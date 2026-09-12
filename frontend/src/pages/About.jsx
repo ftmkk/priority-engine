@@ -2,12 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api, clockLabel, num, pct } from "../api.js";
 import { Card, useApi } from "../components.jsx";
 import {
-  AtKTable, GainsChart, QueueTierChart, TargetBalanceChart, UrgencyChart,
+  ABTestTemplateChart, AtKTable, GainsChart, QueueTierChart, TargetBalanceChart, UrgencyChart,
 } from "../charts.jsx";
 import { GlobalImportance } from "../leadexplain.jsx";
 import { PipelineDiagram, RegimeDiagram, SplitDiagram } from "../diagrams.jsx";
 
-/* Seven slides, one argument: who to call, why that order, and where it stops
+/* Eight slides, one argument: who to call, why that order, and where it stops
    being true. The long version — every measurement, and the readings the data
    ruled out — lives in `notebooks/`. This deck is the part a sales lead needs:
    one claim per slide, one picture, one consequence. */
@@ -214,6 +214,63 @@ function Running() {
   );
 }
 
+/* --------------------------------------------------------------- 8 */
+function Rollout() {
+  return (
+    <>
+      <h2>The gains chart is a backtest. Comparing models for real means an A/B test.</h2>
+      <Lead>
+        Everything on the previous slides is measured against a holdout the model never
+        trained on — but every lead in that holdout was still, in the end, worked the old way.
+        It says the ranking would have been right. It cannot say reps calling from that
+        ranking actually sell more, because nobody has yet called from it. Answering that
+        needs a live experiment, run like this:
+      </Lead>
+      <Split>
+        <div>
+          <Note kind="finding">
+            <b>1. Split live traffic, not historical rows.</b> Each new lead is randomly
+            assigned, at the lead level, to one arm: <b>control</b> (today's order), a{" "}
+            <b>heuristic</b> baseline, and the <b>model</b> queue. Random assignment is what
+            lets a gap in outcomes be pinned on the arm rather than on which reps or which
+            leads happened to land where.
+          </Note>
+          <Note>
+            <b>2. Pick one primary metric up front.</b> Conversion rate within the arm's call
+            window — not lift, not precision@k, not anything computed after peeking at the
+            data. Secondary metrics (revenue per lead, time-to-contact) get reported but don't
+            decide the winner.
+          </Note>
+          <Note>
+            <b>3. Size the sample before starting.</b> Given the base rate (≈7–9%) and the
+            smallest lift worth acting on, a power calculation (e.g. two-proportion z-test,
+            80% power, α = 0.05) sets the leads-per-arm target and the run length — not "run it
+            till it looks good."
+          </Note>
+        </div>
+        <div>
+          <Note>
+            <b>4. Read it once, at the pre-registered stopping point.</b> Compare realized
+            conversion per arm with a two-proportion z-test (or chi-square), report the
+            difference with a 95% CI, and require the interval to exclude zero before calling
+            a winner. Checking daily and stopping the moment a gap looks good is how noise gets
+            sold as lift.
+          </Note>
+          <Note kind="limit">
+            <b>5. Re-run, don't reuse.</b> A win says the ranking beats the alternative for{" "}
+            <em>this</em> offer, market regime, and rep pool, right now — not permanently. It
+            answers the causal question <b>Serving</b> and <b>Result</b> can't, but it expires
+            the same way a backtest does.
+          </Note>
+          <Fig title="Template — illustrative numbers, no experiment run yet">
+            <ABTestTemplateChart height={210} />
+          </Fig>
+        </div>
+      </Split>
+    </>
+  );
+}
+
 const SLIDES = [
   { id: "problem", tab: "The problem",   Body: Problem },
   { id: "record",  tab: "The data",      Body: Record },
@@ -222,6 +279,7 @@ const SLIDES = [
   { id: "serving", tab: "Staying live",  Body: Serving },
   { id: "why",     tab: "Why this lead", Body: Why },
   { id: "running", tab: "In production", Body: Running },
+  { id: "rollout", tab: "Proving it live", Body: Rollout },
 ];
 
 export default function About() {
@@ -287,7 +345,7 @@ export default function About() {
         <span className="eyebrow">The case</span>
         <h1>Why this works</h1>
         <p>
-          Seven slides: how the call list is built, and where it stops being true. The
+          Eight slides: how the call list is built, and where it stops being true. The
           measurements behind each one live in <code>notebooks/</code>.
         </p>
       </div>

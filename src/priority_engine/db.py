@@ -8,11 +8,13 @@ import time
 from contextlib import contextmanager
 
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, func, literal, select, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
+from . import views
 from .config import CFG, ROOT
+from .models import Lead
 
 log = logging.getLogger(__name__)
 engine = create_engine(CFG["db_url"], pool_pre_ping=True, future=True)
@@ -32,7 +34,7 @@ def wait_ready(timeout=90):
     while True:
         try:
             with engine.connect() as c:
-                c.execute(text("SELECT 1"))
+                c.execute(select(1))
             return
         except Exception:
             if time.time() > deadline:
@@ -112,6 +114,18 @@ def clock_sql():
     return f"TIMESTAMPTZ '{clock_now().isoformat()}'"
 
 
+def clock_expr():
+    """Core expression for "now", for use inside a `select()` -- the Core
+    counterpart of `clock_sql()` (which emits SQL text for the generated view
+    DDL). Same three settings, same semantics."""
+    setting = _clock_setting()
+    if setting is None:
+        return func.now()
+    if setting == "dataset":
+        return select(func.max(Lead.created_at)).scalar_subquery()
+    return literal(clock_now().to_pydatetime())
+
+
 def clock_now():
     """The resolved reference time as a Python timestamp.
 
@@ -122,7 +136,7 @@ def clock_now():
     if setting is None:
         return pd.Timestamp.now(tz="UTC")
     if setting == "dataset":
-        at = scalar("SELECT max(created_at) FROM pe.leads")
+        at = scalar(select(func.max(Lead.created_at)))
         return pd.Timestamp(at) if at is not None else pd.Timestamp.now(tz="UTC")
     at = pd.Timestamp(setting)
     if at.tzinfo is None:                       # bare timestamps are read as UTC
@@ -216,23 +230,28 @@ def _log_view_settings():
              pr["queue_horizon_hours"])
 
 
-def query(sql, **params):
+def query(stmt, **params):
+    """Read a Core `select()` (or other executable) into a DataFrame.
+
+    `params` fills any `bindparam()`s the statement declares; a statement built
+    with plain Python values in its `where()`/`values()` clauses needs none.
+    """
     with engine.connect() as c:
-        return pd.read_sql_query(text(sql), c, params=params)
+        return pd.read_sql_query(stmt, c, params=params or None)
 
 
-def execute(sql, **params):
+def execute(stmt, **params):
     """Write in a committed transaction. Returns the first value for
-    INSERT ... RETURNING, else the affected row count."""
+    an INSERT ... RETURNING, else the affected row count."""
     with engine.begin() as c:
-        r = c.execute(text(sql), params)
+        r = c.execute(stmt, params or None)
         return r.scalar() if r.returns_rows else r.rowcount
 
 
-def scalar(sql, **params):
+def scalar(stmt, **params):
     """Read a single value. Read-only — use execute() for writes."""
     with engine.connect() as c:
-        return c.execute(text(sql), params).scalar()
+        return c.execute(stmt, params or None).scalar()
 
 
 # --- the read the training job needs -------------------------------------- #
@@ -246,13 +265,13 @@ def training_data():
     of the file, and the same rule then holds whether the queue is being read at
     a fixed instant or live.
     """
-    return query(
-        """
-        SELECT * FROM pe.v_leads_curated
-        WHERE completed_purchase IS NOT NULL
-          AND created_at < (SELECT max(ingested_at) FROM pe.leads)
-                           - make_interval(days => :maturity)
-        ORDER BY created_at
-        """,
-        maturity=CFG["train"]["label_maturity_days"],
+    vc = views.v_leads_curated
+    cutoff = select(func.max(Lead.ingested_at)).scalar_subquery() - func.make_interval(
+        0, 0, 0, CFG["train"]["label_maturity_days"])
+    stmt = (
+        select(vc)
+        .where(vc.c.completed_purchase.isnot(None))
+        .where(vc.c.created_at < cutoff)
+        .order_by(vc.c.created_at)
     )
+    return query(stmt)

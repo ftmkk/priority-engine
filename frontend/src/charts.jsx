@@ -300,3 +300,32 @@ export function DriftChart({ height = 230 }) {
     );
   });
 }
+
+/* --- A/B rollout (template) ----------------------------------------------
+   Illustrative only — no experiment has run yet. Standing in for the
+   comparison a real rollout would report: conversion by arm, with the
+   uncertainty band that says whether the gap is real or noise. Numbers are
+   a plausible mock-up, sized off the ≈3× lift in `Result`, not a measurement. */
+export function ABTestTemplateChart({ height = 230 }) {
+  const arms = [
+    { arm: "Control\n(random order)", rate: 7.4, lo: 6.6, hi: 8.2, n: "5,000 leads" },
+    { arm: "Heuristic\n(rule of thumb)", rate: 11.8, lo: 10.8, hi: 12.8, n: "5,000 leads" },
+    { arm: "Model\n(ranked queue)", rate: 20.6, lo: 19.2, hi: 22.0, n: "5,000 leads" },
+  ].map((r) => ({ ...r, err: [r.rate - r.lo, r.hi - r.rate] }));
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <BarChart data={arms} margin={{ top: 8, right: 14, left: -4, bottom: 6 }}>
+        <CartesianGrid stroke="var(--line)" vertical={false} />
+        <XAxis dataKey="arm" {...axisProps} />
+        <YAxis {...axisProps} unit="%" />
+        <Tooltip {...tooltipStyle}
+                 formatter={(v, n, p) => [`${p.payload.rate}% (95% CI ${p.payload.lo}–${p.payload.hi}%)`, "Conversion"]}
+                 labelFormatter={(l) => l.replace("\n", " ")} />
+        <Bar dataKey="rate" radius={[3, 3, 0, 0]} isAnimationActive={false}>
+          <Cell fill="var(--ink-3)" /><Cell fill="var(--orange)" /><Cell fill="var(--blue)" />
+          <ErrorBar dataKey="err" width={4} strokeWidth={1.5} stroke="var(--ink-2)" />
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
